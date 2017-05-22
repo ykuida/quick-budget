@@ -1,4 +1,6 @@
 from __future__ import division
+#from helper_classes import BudgetYear
+from budget_year import BudgetYear
 import xlrd
 import yaml
 import sys
@@ -22,19 +24,15 @@ months = {
 ignore_categories = {}
 finance_constants = {}
 total = 0
-# For convenience, total_by_month[1] ... total_by_month[12] correspond to the months and
-# total_by_month[0] is left as 0
-total_by_month = [0] * 13
 income = 0
-income_by_month = [0] * 13
 column_indices = {}
 start_row = 0
 
 def main():
 	read_finance_constants()
+	budget_years = {}
 	total_amount_spent = {}
-	total_amount_spent_by_month = {}
-	get_data(total_amount_spent, total_amount_spent_by_month)
+	get_data(budget_years, total_amount_spent)
 
 	if not income == 0:
 		print "Total Income: " + str(income)
@@ -45,17 +43,23 @@ def main():
 		print "\t" + category + ": " + str(total_amount_spent[category])
 	print
 
-	for month in months:
-		if not month in total_amount_spent_by_month:
-			continue
-		print "\033[1m" + month_string(month) + "\033[0m: "
-		if not income_by_month[month] == 0:
-			print "Income: " + str(income_by_month[month])
-		print "Expenses: " + str(total_by_month[month])
-		if not income_by_month[month] == 0:
-			print "Net Savings: " + str(income_by_month[month] + total_by_month[month])
-		for category in total_amount_spent_by_month[month]:
-			print "\t" + category + ": " + str(total_amount_spent_by_month[month][category])
+	for year in sorted(budget_years):
+		budget_year = budget_years[year]
+		total_amount_spent_by_month = budget_year.get_total_amount_spent_by_month()
+		income_by_month = budget_year.get_income_by_month()
+		total_by_month = budget_year.get_total_by_month()
+
+		for month in months:
+			if not month in total_amount_spent_by_month:
+				continue
+			print "\033[1m" + month_string(month) + " " + str(year) + "\033[0m: "
+			if not income_by_month[month] == 0:
+				print "Income: " + str(income_by_month[month])
+			print "Expenses: " + str(total_by_month[month])
+			if not income_by_month[month] == 0:
+				print "Net Savings: " + str(income_by_month[month] + total_by_month[month])
+			for category in total_amount_spent_by_month[month]:
+				print "\t" + category + ": " + str(total_amount_spent_by_month[month][category])
 
 '''
 Returns the month string for the corresponding int
@@ -83,8 +87,8 @@ def read_finance_constants():
 '''
 Returns the total amount spent in total and by month
 '''
-def get_data(total_amount_spent, total_amount_spent_by_month):
-	global total, total_by_month, income, income_by_month
+def get_data(budget_years, total_amount_spent):
+	global total, income
 	for finance_sheet in get_finance_file_paths():
 		try:
 			book = xlrd.open_workbook(finance_sheet)
@@ -99,7 +103,9 @@ def get_data(total_amount_spent, total_amount_spent_by_month):
 			if "groups" in column_indices and column_indices["groups"] < sheet.ncols:
 				groups = sheet.col(column_indices["groups"])
 			for i in range(0 + start_row, len(dates)):
-				month = xlrd.xldate.xldate_as_datetime(dates[i].value, book.datemode).month
+				date = xlrd.xldate.xldate_as_datetime(dates[i].value, book.datemode)
+				month = date.month
+				year = date.year
 				if groups and groups[i].value:
 					category = groups[i].value
 				else:
@@ -110,21 +116,17 @@ def get_data(total_amount_spent, total_amount_spent_by_month):
 				if category in ignore_categories:
 					continue
 
+				if not year in budget_years:
+					budget_years[year] = BudgetYear(year)
+
 				if amount > 0:
 					income = income + amount
-					income_by_month[month] = income_by_month[month] + amount
 				else:
 					total = total + amount
-					total_by_month[month] = total_by_month[month] + amount
+				budget_years[year].add_item(month, amount, category)
 				if not category in total_amount_spent:
 					total_amount_spent[category] = 0
-				total_amount_spent[category] = total_amount_spent[category] + amount
-
-				if not month in total_amount_spent_by_month:
-					total_amount_spent_by_month[month] = {}
-				if not category in total_amount_spent_by_month[month]:
-					total_amount_spent_by_month[month][category] = 0
-				total_amount_spent_by_month[month][category] = total_amount_spent_by_month[month][category] + amount
+				total_amount_spent[category] += amount
 
 '''
 Evaluates the regexs for the file paths
